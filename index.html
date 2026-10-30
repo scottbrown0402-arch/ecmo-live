@@ -50,6 +50,24 @@
   .wait { text-align: center; color: var(--muted); padding: 26px 8px; font-size: 16px; line-height: 1.5; }
   .wait .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); margin-right: 8px; animation: pulse 1.4s infinite; }
   @keyframes pulse { 0%,100% { opacity: .25 } 50% { opacity: 1 } }
+  .kicker { font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--teal); font-weight: bold; margin-bottom: 10px; }
+  .lead { font-size: 14px; line-height: 1.5; color: #cfe9dd; background: #0f2a20; border-left: 3px solid #2fbf84; padding: 10px 12px; margin: 0 0 12px; border-radius: 4px; }
+  .story p { font-size: 16px; line-height: 1.55; margin: 0 0 12px; }
+  .ask { font-size: 20px; font-weight: bold; margin: 16px 0 10px; }
+  .qb { display: inline-block; font-size: 10px; font-weight: bold; padding: 2px 8px; border-radius: 999px; margin-right: 6px; letter-spacing: .5px; text-transform: uppercase; }
+  .qb-optimal { background: #12461a; color: #7dffa0; } .qb-reasonable { background: #4a3d00; color: #ffd84d; } .qb-unsafe { background: #5a1414; color: #ff9a9a; }
+  .why { font-size: 13px; line-height: 1.5; color: #cfd8e6; margin-top: 6px; }
+  .you { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: #0e1c2e; border: 1px solid #1f4a7a; border-radius: 10px; padding: 10px 12px; margin: 0 0 12px; font-size: 13px; }
+  .you b { color: var(--accent); } .you .pts { font-family: 'Courier New', monospace; font-weight: bold; white-space: nowrap; }
+  .big { font-size: 34px; font-weight: bold; margin: 4px 0; } .big small { font-size: 15px; color: var(--warn); margin-left: 8px; }
+  .sum { font-size: 14px; line-height: 1.5; color: #cfd8e6; margin: 0 0 12px; }
+  .tier { display: inline-block; font-size: 11px; font-weight: bold; padding: 3px 10px; border-radius: 999px; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; }
+  .tier.good { background: #12461a; color: #7dffa0; } .tier.okay { background: #4a3d00; color: #ffd84d; } .tier.bad { background: #5a1414; color: #ff9a9a; }
+  .logi { list-style: none; margin: 8px 0 0; padding: 0; }
+  .logi li { background: var(--card-2); border: 1px solid var(--line); border-left: 3px solid #2fbf84; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; font-size: 13px; line-height: 1.5; color: #cfd8e6; }
+  .logi li.unsafe { border-left-color: #d1495b; } .logi li.reasonable { border-left-color: #e8a33d; }
+  .logi b { display: block; color: var(--text); margin: 2px 0; }
+  .refs { font-size: 12px; line-height: 1.5; color: var(--muted); padding-left: 18px; }
   footer { margin-top: 16px; font-size: 11px; color: var(--muted); text-align: center; }
   @media (prefers-reduced-motion: reduce) { .wait .dot { animation: none } .res .bar { transition: none } }
 </style>
@@ -62,7 +80,7 @@
 
 <section class="vitals" aria-label="Patient and circuit values">
   <div class="tile"><div class="lbl" style="color:#33ff33">HR</div><div class="val" id="v-hr" style="color:#33ff33">--</div><div class="sub">bpm</div></div>
-  <div class="tile"><div class="lbl" style="color:#00eeff">SpO₂</div><div class="val" id="v-spo2" style="color:#00eeff">--</div><div class="sub">%</div></div>
+  <div class="tile"><div class="lbl" style="color:#00eeff">SpO₂</div><div class="val" id="v-spo2" style="color:#00eeff">--</div><div class="sub" id="v-spo2sub">%</div></div>
   <div class="tile"><div class="lbl" style="color:#ff5a5a">ABP</div><div class="val" id="v-abp" style="color:#ff5a5a;font-size:24px;padding-top:4px">--</div><div class="sub" id="v-map">&nbsp;</div></div>
   <div class="tile"><div class="lbl" style="color:#4db6ac">ECMO FLOW</div><div class="val" id="v-flow" style="color:#4db6ac">--</div><div class="sub" id="v-rpm">&nbsp;</div></div>
 </section>
@@ -139,17 +157,45 @@
   }
   function opts(p) {
     var o = p.options || {};
-    return Object.keys(o).map(function (id) { return { id: id, label: String((o[id] || {}).l || id), order: (o[id] || {}).o || 0 }; })
+    return Object.keys(o).map(function (id) { return { id: id, label: String((o[id] || {}).l || id), order: (o[id] || {}).o || 0, q: (o[id] || {}).q, r: (o[id] || {}).r }; })
       .sort(function (a, b) { return a.order - b.order; });
   }
+  // Firebase hands arrays back as objects with numeric keys when they arrive through streaming patches.
+  function arr(x) { if (Array.isArray(x)) return x; if (!x || typeof x !== 'object') return []; return Object.keys(x).sort(function (a, b) { return a - b; }).map(function (k) { return x[k]; }); }
   function state() { return S.pub && S.pub.state ? S.pub.state : null; }
+
+  // Same anonymous nickname the presenter's leaderboard uses (must stay identical to nick() in the simulator).
+  var ADJ = ['Calm', 'Swift', 'Brave', 'Bright', 'Keen', 'Steady', 'Quick', 'Witty', 'Bold', 'Sharp', 'Warm', 'Lucky', 'Nimble', 'Clever', 'Eager', 'Gentle'];
+  var NOUN = ['Heron', 'Otter', 'Falcon', 'Badger', 'Lynx', 'Robin', 'Fox', 'Wren', 'Hare', 'Owl', 'Stoat', 'Kite', 'Finch', 'Newt', 'Seal', 'Crane'];
+  function nick(id) {
+    var h = 2166136261;
+    for (var i = 0; i < id.length; i++) { h ^= id.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+    return ADJ[h % 16] + ' ' + NOUN[(h >>> 8) % 16];
+  }
+  var QLABEL = { optimal: 'Best practice', reasonable: 'Reasonable', unsafe: 'Avoid' }, QPTS = { optimal: 2, reasonable: 1, unsafe: 0 };
+  function qb(q) { return QLABEL[q] ? el('span', 'qb qb-' + q, QLABEL[q]) : null; }
+  function paras(parent, text, cls) { String(text || '').split(/\n\n+/).forEach(function (t) { if (t.trim()) parent.appendChild(el('p', cls || null, t)); }); }
+  function myScore(st) {
+    var lb = st && st.lb && typeof st.lb === 'object' ? st.lb : {}, me = lb[cid], ids = Object.keys(lb);
+    if (!me) return { e: 0, n: 0, rank: null, of: ids.length };
+    var rank = 1; ids.forEach(function (k) { if (k !== cid && (lb[k].e || 0) > (me.e || 0)) rank++; });
+    return { e: me.e || 0, n: me.n || 0, rank: rank, of: ids.length };
+  }
+  function youStrip(st) {
+    var s = myScore(st), d = el('div', 'you'), l = el('div');
+    l.appendChild(document.createTextNode('You are ')); l.appendChild(el('b', null, nick(cid)));
+    d.appendChild(l);
+    d.appendChild(el('div', 'pts', s.n ? s.e + ' pts' + (s.rank ? ' · #' + s.rank + ' of ' + s.of : '') : '0 pts'));
+    return d;
+  }
 
   function renderVitals() {
     var v = S.pub && S.pub.vitals ? S.pub.vitals : null, st = state();
     $('v-hr').textContent = v && v.hr != null ? v.hr : '--';
     $('v-spo2').textContent = v && v.spo2 != null ? v.spo2 : '--';
-    $('v-abp').textContent = v && v.sbp != null ? v.sbp + '/' + v.dbp : '--';
-    $('v-map').textContent = v && v.map != null ? 'MAP ' + v.map : ' ';
+    $('v-abp').textContent = v && v.abp != null ? v.abp : v && v.sbp != null ? v.sbp + '/' + v.dbp : '--';
+    $('v-spo2sub').textContent = v && v.spo2sub ? v.spo2sub : '%';
+    $('v-map').textContent = v && v.map != null && v.map !== '' ? 'MAP ' + v.map : ' ';
     $('v-flow').textContent = v && v.flow != null ? Number(v.flow).toFixed(1) : '--';
     $('v-rpm').textContent = v && v.rpm != null ? 'L/min · ' + v.rpm + ' RPM' : ' ';
     $('ticker').textContent = (v && v.msg) ? v.msg : (st && st.live ? 'Session running' : 'Waiting for the presenter…');
@@ -164,7 +210,9 @@
       var w = el('div', 'wait'); w.appendChild(el('span', 'dot')); w.appendChild(document.createTextNode('Waiting for the presenter to start the session'));
       m.appendChild(w); return;
     }
+    if (st.debrief) { renderDebrief(m, st); return; }
     var p = st.poll;
+    if (p && (p.kind === 'case' || p.kind === 'beat')) { renderCase(m, st, p); return; }
     if (!p) {
       m.appendChild(el('div', 'eyebrow', 'Update'));
       m.appendChild(el('p', 'q', st.banner || 'No question open. Watch the main screen.'));
@@ -203,6 +251,76 @@
       requestAnimationFrame(function () { requestAnimationFrame(function () { bar.style.width = pct + '%'; }); });
     });
     m.appendChild(el('div', 'note', total + (total === 1 ? ' vote' : ' votes') + '. Next question will appear here.'));
+  }
+
+  function renderCase(m, st, p) {
+    var list = opts(p), open = p.status === 'open';
+    m.appendChild(youStrip(st));
+    if (p.kicker) m.appendChild(el('div', 'kicker', p.kicker));
+    if (p.lead) m.appendChild(el('div', 'lead', p.lead));
+    var story = el('div', 'story'); paras(story, p.narrative); m.appendChild(story);
+    if (p.kind === 'beat') {
+      var w = el('div', 'wait'); w.appendChild(el('span', 'dot')); w.appendChild(document.createTextNode('Waiting for the presenter to continue')); m.appendChild(w); return;
+    }
+    m.appendChild(el('div', 'ask', 'What do you do?'));
+    if (open) {
+      list.forEach(function (o, i) {
+        var b = el('button', 'opt'); b.type = 'button';
+        b.setAttribute('aria-pressed', S.mine === o.id ? 'true' : 'false');
+        b.appendChild(el('span', 'k', LETTERS[i] || '•')); b.appendChild(el('span', null, o.label));
+        b.addEventListener('click', function () { vote(p.id, o.id); });
+        m.appendChild(b);
+      });
+      m.appendChild(el('div', 'note' + (S.error ? ' bad' : S.mine ? ' good' : ''), S.error || (S.mine ? 'Answer locked in. You can change it until the presenter closes the vote.' : 'Tap an answer. Your score is private to you until the end.')));
+      return;
+    }
+    var total = p.total || 0, tally = p.tally || {};
+    list.forEach(function (o, i) {
+      var n = tally[o.id] || 0, pct = total ? Math.round(n * 100 / total) : 0, applied = p.appliedId === o.id, mine = S.mine === o.id;
+      var r = el('div', 'res' + (applied ? ' best' : '') + (mine ? ' mine' : ''));
+      var bar = el('div', 'bar'); r.appendChild(bar);
+      var row = el('div', 'row'), left = el('div');
+      left.appendChild(el('div', null, LETTERS[i] + '. ' + o.label));
+      var tags = el('div', 'tags'); var b = qb(o.q); if (b) tags.appendChild(b);
+      var t = []; if (mine) t.push('YOUR PICK' + (QLABEL[o.q] ? ' · +' + QPTS[o.q] : '')); if (applied) t.push('THE ROOM’S CHOICE');
+      tags.appendChild(document.createTextNode(t.join(' · '))); left.appendChild(tags);
+      if ((applied || mine) && o.r) left.appendChild(el('div', 'why', o.r));
+      row.appendChild(left); row.appendChild(el('div', 'n', n + ' · ' + pct + '%'));
+      r.appendChild(row); m.appendChild(r);
+      requestAnimationFrame(function () { requestAnimationFrame(function () { bar.style.width = pct + '%'; }); });
+    });
+    m.appendChild(el('div', 'note', total + (total === 1 ? ' vote' : ' votes') + '. The story continues on the main screen.'));
+  }
+
+  function renderDebrief(m, st) {
+    var d = st.debrief, s = myScore(st);
+    var banner = arr(d.banner);
+    m.appendChild(el('div', 'eyebrow', 'Debrief · ' + (d.name || '')));
+    m.appendChild(el('div', 'tier ' + (d.tier || 'okay'), d.pill || ''));
+    m.appendChild(el('p', 'q', banner[0] || 'Case complete'));
+    if (banner[1]) m.appendChild(el('p', 'sum', banner[1]));
+    if (d.summary) m.appendChild(el('p', 'sum', d.summary));
+    var yr = el('div', 'card'); yr.style.background = '#0e1c2e';
+    yr.appendChild(el('div', 'eyebrow', 'Your score · ' + nick(cid)));
+    var pct = s.n ? Math.round(s.e * 100 / (s.n * 2)) : 0, big = el('div', 'big', s.n ? s.e + ' / ' + (s.n * 2) : 'No votes');
+    if (s.n) big.appendChild(el('small', null, pct + '%' + (s.rank ? ' · #' + s.rank + ' of ' + s.of : '')));
+    yr.appendChild(big);
+    yr.appendChild(el('div', 'note', 'Points: best practice 2, reasonable 1, avoid 0, across the decisions you answered.'));
+    m.appendChild(yr);
+    var rr = el('div', 'card'); rr.style.marginTop = '10px';
+    rr.appendChild(el('div', 'eyebrow', 'The room’s path'));
+    var rb = el('div', 'big', (d.earned || 0) + ' / ' + (d.possible || 0)); rb.appendChild(el('small', null, (d.pct || 0) + '%'));
+    rr.appendChild(rb); rr.appendChild(el('div', 'sum', d.band || '')); m.appendChild(rr);
+    var det = el('details'); det.style.marginTop = '14px'; det.appendChild(el('summary', null, 'Decision log and rationale'));
+    var ul = el('ul', 'logi');
+    arr(d.log).forEach(function (x) {
+      var li = el('li', x.q === 'unsafe' || x.q === 'reasonable' ? x.q : ''); var b = qb(x.q); if (b) li.appendChild(b);
+      li.appendChild(el('span', null, x.h || '')); li.appendChild(el('b', null, x.l || '')); li.appendChild(el('div', null, x.r || '')); ul.appendChild(li);
+    });
+    det.appendChild(ul);
+    var refs = arr(d.refs);
+    if (refs.length) { det.appendChild(el('div', 'eyebrow', 'References')); var ol = el('ol', 'refs'); refs.forEach(function (r) { ol.appendChild(el('li', null, r)); }); det.appendChild(ol); }
+    m.appendChild(det);
   }
 
   function vote(pollId, choice) {
